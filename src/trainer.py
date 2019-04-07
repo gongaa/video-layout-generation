@@ -16,7 +16,7 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets 
 from tensorboardX import SummaryWriter 
 from utils import AverageMeter
-
+from loss import CombinedLoss
 import models
 
 from data import get_dataset
@@ -25,7 +25,7 @@ from models.net_utils import *
 
 def get_model(args):
     # build model
-    model = models.__dict__[args.arch](args.embedding_dim)
+    model = models.__dict__[args.arch](n_channels=3)
 
     # load model
     if args.ckpt is not None:
@@ -52,8 +52,10 @@ class Trainer:
         args.logger.info('Model info\n%s' % str(self.model))
 
         # if loss is self customed, should write it into module yourself
-        self.criterion = nn.CrossEntropyLoss().cuda(args.rank)
-        if args.optimizer == "adam":
+
+        if args.optimizer == "adamax":
+            self.optimizer = torch.optim.adamax(self.model.parameters(), lr=args.lr)
+        elif args.optimizer == "adam":
             self.optimizer = torch.optim.Adam(self.model.parameters(), lr=args.lr)
         elif args.optimizer == "sgd":
             self.optimizer = torch.optim.SGD(self.model.parameters(), lr=args.lr, momentum=0.9)
@@ -95,21 +97,18 @@ class Trainer:
         self.args.logger.info('Training started')
         self.model.train()
         end = time()
-        for i, (seg, mask, onehot) in enumerate(self.train_loader):
+        for i, (frame1, seg1, frame2, seg2, frame_middle) in enumerate(self.train_loader):
             load_time = time() -end
             end = time()
             # for tensorboard
             self.global_step += 1
 
             # forward pass
-            seg = torch.squeeze(seg, 1)
-            seg = seg.cuda(self.args.rank, non_blocking=True)
-            mask = mask.cuda(self.args.rank, non_blocking=True)
-            onehot = onehot.cuda(self.args.rank, non_blocking=True)
-            self.args.logger.debug(seg.shape)
-            self.args.logger.debug(mask.shape)
-            self.args.logger.debug(onehot.shape)
-            _, loss = self.model(seg_gt=seg, mask=mask, onehot=onehot)
+            x = torch.cat([seg1, frame1, frame2, seg2], dim=1) # zeroth is batch size
+            x = x.cuda(self.args.rank, non_blocking=True)
+            self.args.logger.debug(x.shape)
+            img = self.model(x=x)
+            loss = CombinedLoss(output=img, target=frame_middle)
             self.args.logger.debug(loss)
 
             # loss and accuracy
@@ -151,20 +150,20 @@ class Trainer:
 
         with torch.no_grad():
             end = time()
-            for i, (seg, mask, onehot) in enumerate(self.val_loader):
+            for i, (frame1, seg1, frame2, seg2, frame_middle) in enumerate(self.val_loader):
                 load_time = time()-end
                 end = time()
 
                 # forward pass
-                seg = torch.squeeze(seg, 1)
-                seg = seg.cuda(self.args.rank, non_blocking=True)
-                mask = mask.cuda(self.args.rank, non_blocking=True)
-                onehot = onehot.cuda(self.args.rank, non_blocking=True)
-                _, loss = self.model(seg_gt=seg, mask=mask, onehot=onehot)
-
+                x = torch.cat([seg1, frame1, frame2, seg2], dim=1) # zeroth is batch size
+                x = x.cuda(self.args.rank, non_blocking=True)
+                self.args.logger.debug(x.shape)
+                img = self.model(x=x)
+                loss = CombinedLoss(output=img, target=frame_middle)
+                self.args.logger.debug(loss)
                 # loss and accuracy
-                # onehot.size(0) should be batch size
-                size = torch.tensor(float(onehot.size(0))).cuda(self.args.rank) # pylint: disable=not-callable
+                # img.size(0) should be batch size
+                size = torch.tensor(float(img.size(0))).cuda(self.args.rank) # pylint: disable=not-callable
                 loss.mul_(size)
                 self.sync([loss], mean=False) # sum
                 loss.div_(size)

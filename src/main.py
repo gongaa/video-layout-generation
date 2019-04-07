@@ -84,14 +84,14 @@ def main():
 						help='whether eval after each training ', action='store_true')
 	parser.add_argument('--val_interval', dest='val_interval',
 						help='number of epochs to evaluate',type=int,default=1)
-	parser.add_argument('-a', '--arch', type=str, default='simple29_encoderdecoder', help='model to use',
-						choices=['simple29_encoderdecoder, simple29_unet'])
+	parser.add_argument('-a', '--arch', type=str, default='gridnet', help='model to use',
+						choices=['gridnet'])
 	parser.add_argument('-bs','--batch_size', type=int,
-						default=40, help='Batch size (over multiple gpu)')
+						default=32, help='Batch size (over multiple gpu)')
 	parser.add_argument('-e', '--epochs', type=int,
-						default=20, help='Number of training epochs')
-	parser.add_argument('-emb', '--embedding_dim', type=int,
-						default=15, help="embedding dimension")
+						default=30, help='Number of training epochs')
+	# parser.add_argument('-emb', '--embedding_dim', type=int,
+	# 					default=15, help="embedding dimension")
 	# idstributed training
 	parser.add_argument('-j', '--workers', type=int, default=4,
 						help='Number of data loading workers')
@@ -113,7 +113,7 @@ def main():
 											default=10, type=int)
 	# config optimization
 	parser.add_argument('--o', dest='optimizer', help='training optimizer',
-						choices =['adam', 'sgd'], default="adam")
+						choices =['adamax','adam', 'sgd'], default="adamax")
 	parser.add_argument('--lr', dest='lr', help='starting learning rate',
 						default=0.001, type=float)
 	parser.add_argument('--lr_decay_step', dest='lr_decay_step', help='step to do learning rate decay, unit is epoch',
