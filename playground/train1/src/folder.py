@@ -13,8 +13,8 @@ from operator import itemgetter
 def make_dataset(dir):
     path = []
     dir = os.path.expanduser(dir)
-    seg_subdir = dir + '/deeplab256'
-    img_subdir = dir + '/leftImg256'
+    seg_subdir = dir + '/deeplab'
+    img_subdir = dir + '/leftImg'
     cities = [city for city in os.listdir(seg_subdir)]
     for city in cities:
         seg_city_subdir = os.path.join(seg_subdir, city)
@@ -113,13 +113,13 @@ IMG_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.ppm', '.bmp', '.pgm', '.tif', '.tif
 def cv2_loader_RGB(path):
     with open(path, 'r') as f:
         im = cv2.imread(path)
-        # im = cv2.resize(im, dsize=(256,256), interpolation=cv2.INTER_LINEAR)
+        im = cv2.resize(im, dsize=(256,256), interpolation=cv2.INTER_LINEAR)
         return im
 
 def cv2_loader_seg(path):
     with open(path, 'r') as f:
         im = cv2.imread(path)
-        # im = cv2.resize(im, dsize=(256,256), interpolation=cv2.INTER_NEAREST)
+        im = cv2.resize(im, dsize=(256,256), interpolation=cv2.INTER_NEAREST)
         return im
 
 
