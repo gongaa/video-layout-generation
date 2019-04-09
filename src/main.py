@@ -87,9 +87,9 @@ def main():
 	parser.add_argument('-a', '--arch', type=str, default='GridNet', help='model to use',
 						choices=['gridnet'])
 	parser.add_argument('-bs','--batch_size', type=int,
-						default=4, help='Batch size (over multiple gpu)')
+						default=40, help='Batch size (over multiple gpu)')
 	parser.add_argument('-e', '--epochs', type=int,
-						default=30, help='Number of training epochs')
+						default=10, help='Number of training epochs')
 	# parser.add_argument('-emb', '--embedding_dim', type=int,
 	# 					default=15, help="embedding dimension")
 	# idstributed training

@@ -7,7 +7,7 @@ import sys
 
 
 def main():
-    ''' python runner.py -rn train1 -c "python main.py" '''
+    ''' python runner.py -rn train1 -c "python --val main.py" '''
     parser = argparse.ArgumentParser()
     parser.add_argument('--run_name', '-rn', default='default', help='name of experiment')
     parser.add_argument('--force', '-f', action='store_true')

@@ -7,13 +7,14 @@ import os.path
 import sys
 from random import randint
 import torch
+import torchvision.transforms as transforms
 from itertools import groupby
 from operator import itemgetter
 
 def make_dataset(dir):
     path = []
     dir = os.path.expanduser(dir)
-    seg_subdir = dir + '/deeplab256'
+    seg_subdir = dir + '/deeplab256_label'
     img_subdir = dir + '/leftImg256'
     cities = [city for city in os.listdir(seg_subdir)]
     for city in cities:
@@ -36,7 +37,7 @@ def make_dataset(dir):
             for s in suffix:
                 suffix_dir.append([prefix+s[i] for i in range(3)])
             for ss in suffix_dir:
-                seg_p = [s+'_leftImgseg.png' for s in ss]
+                seg_p = [s+'_gtFine_myseg_id.png' for s in ss]
                 img_p = [s+'_leftImg8bit.png' for s in ss]
                 path.append(([os.path.join(seg_subdir,p) for p in seg_p], [os.path.join(img_subdir,p) for p in img_p]))
 
@@ -92,7 +93,8 @@ class DatasetFolder(data.Dataset):
         if self.transform is not None:
             seg = [self.transform(s) for s in seg]
             img = [self.transform(i) for i in img]
-        return img[0], seg[0], img[2], seg[2], img[1]
+        to_normalize = transforms.Normalize((0.5,0.5,0.5),(0.5,0.5,0.5))
+        return to_normalize(img[0]), seg[0], to_normalize(img[2]), seg[2], img[1]
 
     def __len__(self):
         return len(self.samples)
@@ -118,7 +120,7 @@ def cv2_loader_RGB(path):
 
 def cv2_loader_seg(path):
     with open(path, 'r') as f:
-        im = cv2.imread(path)
+        im = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
         # im = cv2.resize(im, dsize=(256,256), interpolation=cv2.INTER_NEAREST)
         return im
 

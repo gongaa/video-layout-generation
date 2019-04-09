@@ -15,6 +15,7 @@ import torch.optim as optim
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets 
 from tensorboardX import SummaryWriter 
+from torchvision.utils import make_grid
 from utils import AverageMeter
 from loss import CombinedLoss
 import models
@@ -25,7 +26,7 @@ from models.net_utils import *
 
 def get_model(args):
     # build model
-    model = models.__dict__[args.arch](n_channels=12)
+    model = models.__dict__[args.arch](n_channels=8)
 
     # load model
     if args.ckpt is not None:
@@ -43,7 +44,8 @@ class Trainer:
 
     def __init__(self, args):
         args.logger.info('Initializing trainer')
-
+        if not os.path.isdir('../predict'):
+            os.makedirs('../predict')
         self.model = get_model(args)
         torch.cuda.set_device(args.rank)
         self.model.cuda(args.rank)
@@ -130,6 +132,11 @@ class Trainer:
             comp_time = time() - end
             end = time()
 
+            # save validate result
+            # p = torch.cat([frame1.cuda(), frame_middle, frame2.cuda(), img], dim=1)
+            # p = p.cpu().detach().numpy()
+            # np.save('../predict/val_'+str(time)+'_'+str(i).zfill(6)+'.npy', p)
+
             # print
             if self.args.rank == 0 and i % self.args.print_freq == 0:
                 self.args.logger.info(
@@ -143,6 +150,8 @@ class Trainer:
                     )
                 )
                 self.writer.add_scalar('train/loss', loss.item(), self.global_step)
+                self.writer.add_image('train/gt middle', make_grid(frame_middle, normalize=True), self.global_step)
+                self.writer.add_image('train/images', make_grid(img, normalize=True), self.global_step)
 
 
     def validate(self):
@@ -172,6 +181,10 @@ class Trainer:
                 self.sync([loss], mean=False) # sum
                 loss.div_(size)
                 val_loss.update(loss.item(), size.item())
+                # save validate result
+                p = torch.cat([frame1.cuda(), frame_middle, frame2.cuda(), img], dim=1)
+                p = p.cpu().detach().numpy()
+                np.save('../predict/val_'+str(end)+'_'+str(i).zfill(6)+'.npy', p)
 
                 comp_time = time() - end
                 end = time()
