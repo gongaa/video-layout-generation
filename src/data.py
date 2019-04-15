@@ -34,7 +34,7 @@ def get_dataset(args):
 				transforms.ToTensor(),
 			])
 		)
-		val_dataset = datasets.ImageFolder(
+		val_dataset = ImageFolder(
 			args.val_dir,
 			transforms.Compose([
 				transforms.ToTensor(),

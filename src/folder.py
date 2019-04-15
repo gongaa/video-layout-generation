@@ -15,6 +15,7 @@ def make_dataset(dir):
     path = []
     dir = os.path.expanduser(dir)
     seg_subdir = dir + '/deeplab256_label'
+    # seg_subdir = dir + '/deeplab'
     img_subdir = dir + '/leftImg256'
     cities = [city for city in os.listdir(seg_subdir)]
     for city in cities:
@@ -30,14 +31,15 @@ def make_dataset(dir):
                 ranges.append(list(map(itemgetter(1),g)))
             suffix = []
             for r in ranges:
-                for i in range(r[0], r[-1]-4):
-                    suffix.append([str(i).zfill(6), str(i+2).zfill(6), str(i+4).zfill(6)])
+                for i in range(r[0], r[-1]-6):
+                    suffix.append([str(i).zfill(6), str(i+3).zfill(6), str(i+6).zfill(6)])
             prefix = os.path.join(city, city+'_'+str(idx).zfill(6)+'_')
             suffix_dir = []
             for s in suffix:
                 suffix_dir.append([prefix+s[i] for i in range(3)])
             for ss in suffix_dir:
                 seg_p = [s+'_gtFine_myseg_id.png' for s in ss]
+                # seg_p = [s+'_leftImgseg.png' for s in ss]
                 img_p = [s+'_leftImg8bit.png' for s in ss]
                 path.append(([os.path.join(seg_subdir,p) for p in seg_p], [os.path.join(img_subdir,p) for p in img_p]))
 
@@ -93,8 +95,8 @@ class DatasetFolder(data.Dataset):
         if self.transform is not None:
             seg = [self.transform(s) for s in seg]
             img = [self.transform(i) for i in img]
-        to_normalize = transforms.Normalize((0.5,0.5,0.5),(0.5,0.5,0.5))
-        return to_normalize(img[0]), seg[0], to_normalize(img[2]), seg[2], img[1]
+        to_normalize = transforms.Normalize(mean=[0.485,0.456,0.406],std=[0.229,0.224,0.225])
+        return to_normalize(img[0]), seg[0], to_normalize(img[1]), seg[1], to_normalize(img[2]) # also normalize GT image
 
     def __len__(self):
         return len(self.samples)
@@ -115,13 +117,16 @@ IMG_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.ppm', '.bmp', '.pgm', '.tif', '.tif
 def cv2_loader_RGB(path):
     with open(path, 'r') as f:
         im = cv2.imread(path)
+        im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)    # BGR to RGB, otherwise zombie on tensorboard
         # im = cv2.resize(im, dsize=(256,256), interpolation=cv2.INTER_LINEAR)
         return im
 
 def cv2_loader_seg(path):
     with open(path, 'r') as f:
         im = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
-        # im = cv2.resize(im, dsize=(256,256), interpolation=cv2.INTER_NEAREST)
+        # im = cv2.imread(path)
+        # im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
+        im = cv2.resize(im, dsize=(256,256), interpolation=cv2.INTER_NEAREST)
         return im
 
 

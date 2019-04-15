@@ -29,14 +29,13 @@ def get_model(args):
     model = models.__dict__[args.arch](n_channels=8)
 
     # load model
-    if args.ckpt is not None:
+    if getattr(args, 'ckpt', None) is not None:
         args.logger.info('Loading from ckpt %s' % args.ckpt)
         ckpt = torch.load(args.ckpt,
-                map_location=torch.device('cpu')) # load to cpu
+            map_location=torch.device('cpu')) # load to cpu
         if 'model' in ckpt:
             ckpt = ckpt['model']
         model.load_state_dict(ckpt)
-
     return model
 
 
@@ -69,8 +68,8 @@ class Trainer:
         torch.backends.cudnn.benchmark = True
         self.global_step = 0
 
-        if args.ckpt is not None:
-            self.load_checkpoint(args.ckpt)
+        if args.resume is not None:
+            self.load_checkpoint(args.resume)
 
         if args.rank == 0:
             self.writer = SummaryWriter(args.path)
@@ -101,19 +100,22 @@ class Trainer:
         self.args.logger.info('Training started')
         self.model.train()
         end = time()
-        for i, (frame1, seg1, frame2, seg2, frame_middle) in enumerate(self.train_loader):
+        for i, (frame1, seg1, frame2, seg2, frame3) in enumerate(self.train_loader):
             load_time = time() -end
             end = time()
             # for tensorboard
             self.global_step += 1
 
             # forward pass
+            # x = torch.cat([frame1, frame2], dim=1)
             x = torch.cat([seg1, frame1, frame2, seg2], dim=1) # zeroth is batch size
             x = x.cuda(self.args.rank, non_blocking=True)
-            frame_middle = frame_middle.cuda(self.args.rank, non_blocking=True)
-            self.args.logger.debug(x.shape)
+            frame3 = frame3.cuda(self.args.rank, non_blocking=True)
+            # self.args.logger.debug(x.shape)
             img = self.model(x)
-            loss = self.loss(output=img, target=frame_middle)
+            img = 2.5 * F.tanh(img)   # if normalize gt image
+            # img = F.sigmoid(img)
+            loss = self.loss(output=img, target=frame3)
             self.args.logger.debug(loss)
 
             # loss and accuracy
@@ -133,7 +135,7 @@ class Trainer:
             end = time()
 
             # save validate result
-            # p = torch.cat([frame1.cuda(), frame_middle, frame2.cuda(), img], dim=1)
+            # p = torch.cat([frame2.cuda(), frame3, frame2.cuda(), img], dim=1)
             # p = p.cpu().detach().numpy()
             # np.save('../predict/val_'+str(time)+'_'+str(i).zfill(6)+'.npy', p)
 
@@ -150,7 +152,7 @@ class Trainer:
                     )
                 )
                 self.writer.add_scalar('train/loss', loss.item(), self.global_step)
-                self.writer.add_image('train/gt middle', make_grid(frame_middle, normalize=True), self.global_step)
+                self.writer.add_image('train/gt middle', make_grid(frame3, normalize=True), self.global_step)
                 self.writer.add_image('train/images', make_grid(img, normalize=True), self.global_step)
 
 
@@ -162,17 +164,20 @@ class Trainer:
 
         with torch.no_grad():
             end = time()
-            for i, (frame1, seg1, frame2, seg2, frame_middle) in enumerate(self.val_loader):
+            for i, (frame1, seg1, frame2, seg2, frame3) in enumerate(self.val_loader):
                 load_time = time()-end
                 end = time()
 
                 # forward pass
+                # x = torch.cat([frame1, frame2], dim=1)
                 x = torch.cat([seg1, frame1, frame2, seg2], dim=1) # zeroth is batch size, first is channel
                 x = x.cuda(self.args.rank, non_blocking=True)
-                frame_middle = frame_middle.cuda(self.args.rank, non_blocking=True)
-                self.args.logger.debug(x.shape)
+                frame3 = frame3.cuda(self.args.rank, non_blocking=True)
+                # self.args.logger.debug(x.shape)
                 img = self.model(x=x)
-                loss = self.loss(output=img, target=frame_middle)
+                img = 2.5 * F.tanh(img)   # if normalize gt image
+                # img = F.sigmoid(img)
+                loss = self.loss(output=img, target=frame3)
                 self.args.logger.debug(loss)
                 # loss and accuracy
                 # img.size(0) should be batch size
@@ -182,9 +187,10 @@ class Trainer:
                 loss.div_(size)
                 val_loss.update(loss.item(), size.item())
                 # save validate result
-                p = torch.cat([frame1.cuda(), frame_middle, frame2.cuda(), img], dim=1)
-                p = p.cpu().detach().numpy()
-                np.save('../predict/val_'+str(end)+'_'+str(i).zfill(6)+'.npy', p)
+                if self.epoch % 2 ==0 and self.args.rank == 0 and i % 100 == 0:
+                    p = torch.cat([frame1.cuda(), frame2.cuda(), frame3, img], dim=1)
+                    p = p.cpu().detach().numpy()
+                    np.save('../predict/val_'+str(end)+'_'+str(i).zfill(6)+'.npy', p)
 
                 comp_time = time() - end
                 end = time()
@@ -218,27 +224,28 @@ class Trainer:
             if mean:
                 tensor.div_(self.args.gpus)
 
+    
+
     def save_checkpoint(self, metrics):
-        self.args.logger.info('Saving checkpoing..')
-        prefix = self.args.path + '/checkpoint'
+        self.args.logger.info('Saving checkpoint..')
+        prefix = '../checkpoint'
         torch.save({
             'epoch': self.epoch,
-            'arch' : self.args.arch,
-            'model': self.model.module.state_dict(),
+            'arch': self.args.arch,
+            'model': self.model.module.state_dict(), # data parallel
             'optimizer': self.optimizer.state_dict(),
-            'lr_scheduler': self.lr_scheduler.state_dict(),
         }, '%s/%03d.pth' % (prefix, self.epoch))
         shutil.copy('%s/%03d.pth' % (prefix, self.epoch),
             '%s/latest.pth' % prefix)
 
-    def load_checkpoint(self, ckpt):
-        self.args.logger.info('Loading checkpoint %s' % ckpt)
-        clpt = torch.load(ckpt)
+    def load_checkpoint(self, resume):
+        self.args.logger.info('Resuming checkpoint %s' % resume)
+        ckpt = torch.load(resume)
         assert ckpt['arch'] == self.args.arch, ('Architecture mismatch: ckpt %s, config %s'
-                % (ckpt['arch'], self.args.arch))
+            % (ckpt['arch'], self.args.arch))
 
         self.epoch = ckpt['epoch']
-        self.model.load_state_dict(ckpt['optimizer'])
-        self.lr_scheduler.load_state_dict(ckpt['lr_scheduler'])
+        self.model.load_state_dict(ckpt['model'])
+        self.optimizer.load_state_dict(ckpt['optimizer'])
 
         self.args.logger.info('Checkpoint loaded')

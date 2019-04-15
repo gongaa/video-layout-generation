@@ -34,7 +34,7 @@ class VggLoss(nn.Module):
         loss = torch.norm(outputFeatures - targetFeatures, 2)
 
         # return config.VGG_FACTOR * loss
-        return loss
+        return 0.5*loss
 
 
 class CombinedLoss(nn.Module):
