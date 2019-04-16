@@ -93,10 +93,14 @@ class DatasetFolder(data.Dataset):
         seg = [cv2_loader_seg(p) for p in seg_paths]
         img = [cv2_loader_RGB(p) for p in img_paths]
         if self.transform is not None:
-            seg = [self.transform(s) for s in seg]
+            # seg = [self.transform(s) for s in seg]
+            seg = [torch.from_numpy(s) for s in seg] # keep its range from 0-20
+            seg[0] = seg[0].float().unsqueeze_(0)
+            seg[1] = seg[1].float().unsqueeze_(0)
+            seg[2] = seg[2].long()
             img = [self.transform(i) for i in img]
         to_normalize = transforms.Normalize(mean=[0.485,0.456,0.406],std=[0.229,0.224,0.225])
-        return to_normalize(img[0]), seg[0], to_normalize(img[1]), seg[1], to_normalize(img[2]) # also normalize GT image
+        return to_normalize(img[0]), seg[0], to_normalize(img[1]), seg[1], to_normalize(img[2]), seg[2] # also normalize GT image
 
     def __len__(self):
         return len(self.samples)
@@ -175,3 +179,4 @@ class ImageFolder(DatasetFolder):
                                           transform=transform,
                                           target_transform=target_transform)
         self.imgs = self.samples
+

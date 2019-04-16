@@ -61,17 +61,25 @@ def worker(rank, args):
 
 	trainer = Trainer(args)
 
-	if args.rank == 0:
-		pathlib.Path('../checkpoint').mkdir(
-			parents=True, exist_ok=False)
+	if args.img1 is not None and args.img2 is not None and args.seg1 is not None and args.seg2 is not None:
+		trainer.model.eval()
+		trainer.eval_generate_sequence(args.img1, args.img2, args.seg1, args.seg2)
+		return
+	
+	if args.validate:
+  		trainer.validate()
+	else:
+		if args.rank == 0:
+			pathlib.Path('../checkpoint').mkdir(
+					parents=True, exist_ok=False)
 
-	for epoch in range(args.epochs):
-		trainer.set_epoch(epoch)
-		trainer.train()
-		metrics = trainer.validate()
+		for epoch in range(args.epochs):
+			trainer.set_epoch(epoch)
+			trainer.train()
+			metrics = trainer.validate()
 
-		if args.rank == 0:	# gpu id
-			trainer.save_checkpoint(metrics)
+			if args.rank == 0:	# gpu id
+				trainer.save_checkpoint(metrics)
 
 
 def main():
@@ -84,8 +92,8 @@ def main():
 						default='/data/agong/val', help='Cityscape val dir')
 	parser.add_argument('--test_dir', type=str,
 						default='/data/agong/test', help='Cityscape test dir')
-	parser.add_argument('--val', dest='val',
-						help='whether eval after each training ', action='store_true')
+	parser.add_argument('--validate', action='store_true',
+						help='whether eval after each training')
 	parser.add_argument('--val_interval', dest='val_interval',
 						help='number of epochs to evaluate',type=int,default=1)
 	parser.add_argument('-a', '--arch', type=str, default='GridNet', help='model to use',
@@ -96,6 +104,10 @@ def main():
 						default=10, help='Number of training epochs')
 	parser.add_argument('--resume', type=str, default=None,
                         help='Resume from checkpoint')
+	parser.add_argument('--img1', type=str, default=None, help='First image url')
+	parser.add_argument('--img2', type=str, default=None, help='Second image url')
+	parser.add_argument('--seg1', type=str, default=None, help='First image seg url')
+	parser.add_argument('--seg2', type=str, default=None, help='Second image seg url')
 	# parser.add_argument('-emb', '--embedding_dim', type=int,
 	# 					default=15, help="embedding dimension")
 	# idstributed training
