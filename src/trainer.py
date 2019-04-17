@@ -78,7 +78,7 @@ class Trainer:
         self.std_arr = torch.tensor([0.448,0.448,0.450])[None,:,None,None].cuda(args.rank)
         # self.std_arr = torch.tensor([0.229,0.224,0.225])[None,:,None,None].cuda()
         # self.mean_arr = torch.tensor([0.485,0.456,0.406])[None,:,None,None].cuda()
-        self.cross_entropy_loss = nn.CrossEntropyLoss(reduction='sum')
+        self.cross_entropy_loss = nn.CrossEntropyLoss(reduction='mean')
         self.loss = CombinedLoss()
         self.cross_entropy_loss.cuda(args.rank)
         self.loss.cuda(args.rank)
@@ -153,7 +153,7 @@ class Trainer:
             # img = 2.5 * F.tanh(img)   # if normalize gt image
             # img = F.sigmoid(img)
             img_loss = self.loss(output=img, target=frame3)
-            seg_loss = self.cross_entropy_loss(input=seg, target=seg3) / 256
+            seg_loss = self.cross_entropy_loss(input=seg, target=seg3)
             loss = img_loss + seg_loss
             self.args.logger.debug(loss)
 
@@ -233,7 +233,7 @@ class Trainer:
                 # img = 2.5 * F.tanh(img)   # if normalize gt image
                 # img = F.sigmoid(img)
                 img_loss = self.loss(output=img, target=frame3)
-                seg_loss = self.cross_entropy_loss(input=seg, target=seg3) / 256
+                seg_loss = self.cross_entropy_loss(input=seg, target=seg3)
                 loss = img_loss + seg_loss
                 self.args.logger.debug(loss)
                 # loss and accuracy
@@ -365,6 +365,8 @@ class Trainer:
                 x = x.cuda(self.args.rank, non_blocking=True)
                 # self.args.logger.debug(x.shape)
                 seg_next, img_next = self.model(x)
+                img_next = F.tanh(img_next)
+                img_next = (img_next - self.mean_arr) / self.std_arr
                 seg_next = torch.argmax(seg_next, dim=1).unsqueeze_(1).float() # from NCHW to N1HW
                 img.append(img_next)
                 seg.append(seg_next)

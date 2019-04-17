@@ -96,8 +96,8 @@ def main():
 						help='whether eval after each training')
 	parser.add_argument('--val_interval', dest='val_interval',
 						help='number of epochs to evaluate',type=int,default=1)
-	parser.add_argument('-a', '--arch', type=str, default='GridNet', help='model to use',
-						choices=['gridnet'])
+	parser.add_argument('-a', '--arch', type=str, default='CoordGridNet', help='model to use',
+						choices=['GridNet','CoordGridNet'])
 	parser.add_argument('-bs','--batch_size', type=int,
 						default=32, help='Batch size (over multiple gpu)')
 	parser.add_argument('-e', '--epochs', type=int,

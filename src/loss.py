@@ -13,6 +13,19 @@ from torch import nn
 from torch.autograd import Variable
 
 
+class GradientLoss(nn.Module):
+    def __init__(self):
+        super(GradientLoss, self).__init__()
+
+    def forward(self, a, b):    # a is output, b is target
+        xloss = torch.sum(
+            torch.abs(torch.abs(a[:, :, 1:, :] - a[:, :, :-1, :]) - torch.abs(b[:, :, 1:, :] - b[:, :, :-1, :])))
+        yloss = torch.sum(
+            torch.abs(torch.abs(a[:, :, :, 1:] - a[:, :, :, :-1]) - torch.abs(b[:, :, :, 1:] - b[:, :, :, :-1])))
+        return (xloss + yloss) / (a.size()[0] * a.size()[1] * a.size()[2] * a.size()[3])
+
+
+
 class VggLoss(nn.Module):
     def __init__(self):
         super(VggLoss, self).__init__()
@@ -23,28 +36,35 @@ class VggLoss(nn.Module):
             # stop at relu4_4 (-10)
             *list(model.features.children())[:-10]
         )
-
+        self.mse = nn.MSELoss(reduction='mean')
         for param in self.features.parameters():
             param.requires_grad = False
 
     def forward(self, output, target):
+        # add total variation loss
+        reg_loss = 1e-6 * (
+            torch.sum(torch.abs(output[:, :, :, :-1] - output[:, :, :, 1:])) + 
+            torch.sum(torch.abs(output[:, :, :-1, :] - output[:, :, 1:, :])))
         outputFeatures = self.features(output)
         targetFeatures = self.features(target)
+        
+        # loss = torch.norm(outputFeatures - targetFeatures, 2)
+        loss = self.mse(outputFeatures, targetFeatures)
 
-        loss = torch.norm(outputFeatures - targetFeatures, 2)
 
         # return config.VGG_FACTOR * loss
-        return 0.5*loss
+        return loss + reg_loss
 
 
 class CombinedLoss(nn.Module):
     def __init__(self):
         super(CombinedLoss, self).__init__()
         self.vgg = VggLoss()
-        self.l1 = nn.L1Loss()
+        self.l1 = nn.L1Loss(reduction='mean')
+        self.ssim = SsimLoss()
 
     def forward(self, output, target) -> torch.Tensor:
-        return self.vgg(output, target) + self.l1(output, target)
+        return self.vgg(output, target) + self.l1(output, target) + self.ssim(output, target)
 
 
 class SsimLoss(torch.nn.Module):
