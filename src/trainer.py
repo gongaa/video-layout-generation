@@ -152,8 +152,8 @@ class Trainer:
             
             # img = 2.5 * F.tanh(img)   # if normalize gt image
             # img = F.sigmoid(img)
-            img_loss = self.loss(output=img, target=frame3)
-            seg_loss = self.cross_entropy_loss(input=seg, target=seg3)
+            img_loss = self.loss(output=img, target=frame3) * 20
+            seg_loss = self.cross_entropy_loss(input=seg, target=seg3) * 10
             loss = img_loss + seg_loss
             self.args.logger.debug(loss)
 
@@ -232,8 +232,8 @@ class Trainer:
 
                 # img = 2.5 * F.tanh(img)   # if normalize gt image
                 # img = F.sigmoid(img)
-                img_loss = self.loss(output=img, target=frame3)
-                seg_loss = self.cross_entropy_loss(input=seg, target=seg3)
+                img_loss = self.loss(output=img, target=frame3) * 20
+                seg_loss = self.cross_entropy_loss(input=seg, target=seg3) * 10
                 loss = img_loss + seg_loss
                 self.args.logger.debug(loss)
                 # loss and accuracy

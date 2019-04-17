@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 class LateralBlock(nn.Module):
 
-    def __init__(self, in_ch, out_ch, shortcut_conv = True, name = 'lateral'):
+    def __init__(self, in_ch, out_ch, shortcut_conv = False, name = 'lateral'):
         super(LateralBlock, self).__init__()
         self.shortcut_conv = shortcut_conv
         self.name = name
@@ -15,13 +15,15 @@ class LateralBlock(nn.Module):
             nn.PReLU(),
             nn.Conv2d(out_ch, out_ch, 3, padding=1)
         )
-        self.conv2 = nn.Conv2d(in_ch, out_ch, 3, padding=1)
+        if self.shortcut_conv is True:
+            self.conv2 = nn.Conv2d(in_ch, out_ch, 3, padding=1)
        
     def forward(self, x):
-        if self.shortcut_conv: # should be called first or final lateral block
-            x = self.conv(x) + self.conv2(x)
-        else: x = self.conv(x)
-        return x
+        if self.shortcut_conv is True: # should be called first or final lateral block
+            return self.conv(x) + self.conv2(x)
+        else: 
+            return self.conv(x)
+
             
 
 class DownSamplingBlock(nn.Module):
@@ -56,79 +58,14 @@ class UpSamplingBlock(nn.Module):
         return self.up(x)
 
 
-class AddCoordsTh(nn.Module):
-    def __init__(self, x_dim=64, y_dim=64, with_r=False):
-        super(AddCoordsTh, self).__init__()
-        self.x_dim = x_dim
-        self.y_dim = y_dim
-        self.with_r = with_r
-
-    def forward(self, input_tensor):
-        """
-        input_tensor: (batch, c, x_dim, y_dim)
-        """
-        batch_size_tensor = input_tensor.shape[0]
-
-        xx_ones = torch.ones([1, self.y_dim], dtype=torch.int32)
-        xx_ones = xx_ones.unsqueeze(-1)
-
-        xx_range = torch.arange(self.x_dim, dtype=torch.int32).unsqueeze(0)
-        xx_range = xx_range.unsqueeze(1)
-
-        xx_channel = torch.matmul(xx_ones, xx_range)
-        xx_channel = xx_channel.unsqueeze(-1)
-
-        yy_ones = torch.ones([1, self.x_dim], dtype=torch.int32)
-        yy_ones = yy_ones.unsqueeze(1)
-
-        yy_range = torch.arange(self.y_dim, dtype=torch.int32).unsqueeze(0)
-        yy_range = yy_range.unsqueeze(-1)
-
-        yy_channel = torch.matmul(yy_range, yy_ones)
-        yy_channel = yy_channel.unsqueeze(-1)
-
-        xx_channel = xx_channel.permute(0, 3, 2, 1)
-        yy_channel = yy_channel.permute(0, 3, 2, 1)
-
-        xx_channel = xx_channel.float() / (self.x_dim - 1)
-        yy_channel = yy_channel.float() / (self.y_dim - 1)
-
-        xx_channel = xx_channel * 2 - 1
-        yy_channel = yy_channel * 2 - 1
-
-        xx_channel = xx_channel.repeat(batch_size_tensor, 1, 1, 1)
-        yy_channel = yy_channel.repeat(batch_size_tensor, 1, 1, 1)
-
-        ret = torch.cat([input_tensor, xx_channel, yy_channel], dim=1)
-
-        if self.with_r:
-            rr = torch.sqrt(torch.pow(xx_channel - 0.5, 2) + torch.pow(yy_channel - 0.5, 2))
-            ret = torch.cat([ret, rr], dim=1)
-
-        return ret
-
-
-class CoordConvTh(nn.Module):
-    """CoordConv layer as in the paper."""
-    def __init__(self, x_dim, y_dim, with_r, *args, **kwargs):
-        super(CoordConvTh, self).__init__()
-        self.addcoords = AddCoordsTh(x_dim=x_dim, y_dim=y_dim, with_r=with_r)
-        self.conv = nn.Conv2d(*args, **kwargs)
-
-    def forward(self, input_tensor):
-        ret = self.addcoords(input_tensor)
-        ret = self.conv(ret)
-        return ret
-
 
 '''
-An alternative implementation for PyTorch with auto-infering the x-y dimensions.
+auto-infering the x-y dimensions.
 '''
 class AddCoords(nn.Module):
 
-    def __init__(self, with_r=False):
+    def __init__(self):
         super().__init__()
-        self.with_r = with_r
 
     def forward(self, input_tensor):
         """
@@ -154,21 +91,15 @@ class AddCoords(nn.Module):
             xx_channel.type_as(input_tensor),
             yy_channel.type_as(input_tensor)], dim=1)
 
-        if self.with_r:
-            rr = torch.sqrt(torch.pow(xx_channel.type_as(input_tensor) - 0.5, 2) + torch.pow(yy_channel.type_as(input_tensor) - 0.5, 2))
-            ret = torch.cat([ret, rr], dim=1)
-
         return ret
 
 
 class CoordConv(nn.Module):
 
-    def __init__(self, in_channels, out_channels, with_r=False, **kwargs):
+    def __init__(self, in_channels, out_channels, **kwargs):
         super().__init__()
-        self.addcoords = AddCoords(with_r=with_r)
+        self.addcoords = AddCoords()
         in_size = in_channels+2
-        if with_r:
-            in_size += 1
         self.conv = nn.Conv2d(in_size, out_channels, **kwargs)
 
     def forward(self, x):
@@ -181,7 +112,7 @@ class CoordConv(nn.Module):
 
 class CoordLateralBlock(nn.Module):
 
-    def __init__(self, in_ch, out_ch, shortcut_conv = False, name = 'lateral'):
+    def __init__(self, in_ch, out_ch, shortcut_conv = False, name = 'coord_lateral'):
         super(CoordLateralBlock, self).__init__()
         self.shortcut_conv = shortcut_conv
         self.name = name
@@ -192,18 +123,20 @@ class CoordLateralBlock(nn.Module):
             nn.PReLU(),
             CoordConv(out_ch, out_ch, kernel_size=3, padding=1)
         )
-        self.conv2 = CoordConv(in_ch, out_ch, kernel_size=3, padding=1)
+        if self.shortcut_conv is True:
+            self.conv2 = CoordConv(in_ch, out_ch, kernel_size=3, padding=1)
        
     def forward(self, x):
-        if self.shortcut_conv: # should be called first or final lateral block
-            x = self.conv(x) + self.conv2(x)
-        else: x = self.conv(x)
-        return x
+        if self.shortcut_conv is True: # should be called first or final lateral block
+            return self.conv(x) + self.conv2(x)
+        else: 
+            return self.conv(x)
+
             
 
 class CoordDownSamplingBlock(nn.Module):
 
-    def __init__(self, in_ch, out_ch, name = 'down'):
+    def __init__(self, in_ch, out_ch, name = 'coord_down'):
         super(CoordDownSamplingBlock, self).__init__()
         self.name = name
         self.conv = nn.Sequential(
@@ -218,7 +151,7 @@ class CoordDownSamplingBlock(nn.Module):
 
 class CoordUpSamplingBlock(nn.Module):
 
-    def __init__(self, in_ch, out_ch, name = 'up'):
+    def __init__(self, in_ch, out_ch, name = 'coord_up'):
         super(CoordUpSamplingBlock, self).__init__()
         self.name = name
         self.up = nn.Sequential(

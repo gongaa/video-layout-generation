@@ -36,24 +36,25 @@ class VggLoss(nn.Module):
             # stop at relu4_4 (-10)
             *list(model.features.children())[:-10]
         )
-        self.mse = nn.MSELoss(reduction='mean')
+        # self.mse = nn.MSELoss(reduction='mean')
         for param in self.features.parameters():
             param.requires_grad = False
 
     def forward(self, output, target):
         # add total variation loss
-        reg_loss = 1e-6 * (
-            torch.sum(torch.abs(output[:, :, :, :-1] - output[:, :, :, 1:])) + 
-            torch.sum(torch.abs(output[:, :, :-1, :] - output[:, :, 1:, :])))
+        # reg_loss = 1e-6 * (
+        #     torch.sum(torch.abs(output[:, :, :, :-1] - output[:, :, :, 1:])) + 
+        #     torch.sum(torch.abs(output[:, :, :-1, :] - output[:, :, 1:, :])))
         outputFeatures = self.features(output)
         targetFeatures = self.features(target)
         
         # loss = torch.norm(outputFeatures - targetFeatures, 2)
-        loss = self.mse(outputFeatures, targetFeatures)
+        # loss = self.mse(outputFeatures, targetFeatures)
+        loss = (outputFeatures - targetFeatures).abs().mean()
 
-
+        return loss
         # return config.VGG_FACTOR * loss
-        return loss + reg_loss
+        # return loss + reg_loss
 
 
 class CombinedLoss(nn.Module):
@@ -62,9 +63,10 @@ class CombinedLoss(nn.Module):
         self.vgg = VggLoss()
         self.l1 = nn.L1Loss(reduction='mean')
         self.ssim = SsimLoss()
+        self.gd = GradientLoss()
 
     def forward(self, output, target) -> torch.Tensor:
-        return self.vgg(output, target) + self.l1(output, target) + self.ssim(output, target)
+        return self.vgg(output, target) + self.l1(output, target) + self.gd(output, target) + self.ssim(output, target)
 
 
 class SsimLoss(torch.nn.Module):
