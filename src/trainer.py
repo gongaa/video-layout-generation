@@ -19,8 +19,11 @@ from torchvision.utils import make_grid
 from utils import AverageMeter
 from loss import CombinedLoss
 import models
+from models.networks import init_net
+from models.networks import get_norm_layer
+from models.networks import GANLoss
 import cv2
-
+import random
 from data import get_dataset
 from models.net_utils import *
 # from cfg import cfg
@@ -50,17 +53,29 @@ color_map = [
 
 def get_model(args):
     # build model
-    model = models.__dict__[args.arch](n_channels=8)
+    norm_layer = get_norm_layer(norm_type=args.norm)
+    generator = models.__dict__[args.generator](args.input_nc, args.output_nc, args.ngf, norm_layer=norm_layer, use_dropout=not args.no_dropout, n_blocks=9).cuda(args.rank)
+    discriminator = models.__dict__[args.discriminator](9, args.ndf, n_layers=3, norm_layer=norm_layer).cuda(args.rank)
+    init_net(generator, init_type=args.init_type, init_gain=args.init_gain)
+    init_net(discriminator, init_type=args.init_type, init_gain=args.init_gain)
 
+    optimizer_G = torch.optim.Adam(generator.parameters(), lr=args.lr, betas=(args.beta1, 0.999))
+    optimizer_D = torch.optim.Adam(discriminator.parameters(), lr=args.lr, betas=(args.beta1, 0.999))
     # load model
     if getattr(args, 'ckpt', None) is not None:
         args.logger.info('Loading from ckpt %s' % args.ckpt)
         ckpt = torch.load(args.ckpt,
             map_location=torch.device('cpu')) # load to cpu
-        if 'model' in ckpt:
-            ckpt = ckpt['model']
-        model.load_state_dict(ckpt)
-    return model
+        if 'generator' in ckpt:
+            generator.load_state_dict(ckpt['generator'])
+        if 'discriminator' in ckpt:
+            discriminator.load_state_dict(ckpt['discriminator'])
+        if 'optimizer_G' in ckpt:
+            optimizer_G.load_state_dict(ckpt['optimizer_G'])
+        if 'optimizer_D' in ckpt:
+            optimizer_D.load_state_dict(ckpt['optimizer_D'])
+
+    return generator, discriminator, optimizer_G, optimizer_D
 
 
 class Trainer:
@@ -69,11 +84,13 @@ class Trainer:
         args.logger.info('Initializing trainer')
         if not os.path.isdir('../predict'):
             os.makedirs('../predict')
-        self.model = get_model(args)
+
         torch.cuda.set_device(args.rank)
-        self.model.cuda(args.rank)
-        self.model = torch.nn.parallel.DistributedDataParallel(self.model,
-                device_ids=[args.rank])
+        self.netG, self.netD, self.optimizer_G, self.optimizer_D = get_model(args)
+
+        # self.model.cuda(args.rank)
+        self.netG = torch.nn.parallel.DistributedDataParallel(self.netG, device_ids=[args.rank])
+        self.netD = torch.nn.parallel.DistributedDataParallel(self.netD, device_ids=[args.rank])
         self.mean_arr = torch.tensor([-0.03,-0.088,-0.188])[None,:,None,None].cuda(args.rank)
         self.std_arr = torch.tensor([0.448,0.448,0.450])[None,:,None,None].cuda(args.rank)
         # self.std_arr = torch.tensor([0.229,0.224,0.225])[None,:,None,None].cuda()
@@ -82,18 +99,12 @@ class Trainer:
         self.loss = CombinedLoss()
         self.cross_entropy_loss.cuda(args.rank)
         self.loss.cuda(args.rank)
+        self.criterionGAN = GANLoss(args.gan_mode)
+        self.criterionGAN.cuda(args.rank)
+        self.criterionL1 = torch.nn.L1Loss()
+        self.criterionL1.cuda(args.rank)
         args.logger.info('Model info\n%s' % str(self.model))
 
-        # if loss is self customed, should write it into module yourself
-
-        if args.optimizer == "adamax":
-            self.optimizer = torch.optim.Adamax(self.model.parameters(), lr=args.lr)
-        elif args.optimizer == "adam":
-            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=args.lr)
-        elif args.optimizer == "sgd":
-            self.optimizer = torch.optim.SGD(self.model.parameters(), lr=args.lr, momentum=0.9)
-            self.lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-                    self.optimizer, args.epoch)
 
         torch.backends.cudnn.benchmark = True
         self.global_step = 0
@@ -130,7 +141,8 @@ class Trainer:
 
     def train(self):
         self.args.logger.info('Training started')
-        self.model.train()
+        self.netG.train()
+        self.netD.train()
         end = time()
         for i, (frame1, seg1, frame2, seg2, frame3, seg3) in enumerate(self.train_loader):
             load_time = time() -end
@@ -139,36 +151,63 @@ class Trainer:
             self.global_step += 1
 
             # forward pass
-            # x = torch.cat([frame1, frame2], dim=1)
             x = torch.cat([seg1, frame1, frame2, seg2], dim=1) # zeroth is batch size
             x = x.cuda(self.args.rank, non_blocking=True)
+            frame1 = frame1.cuda(self.args.rank, non_blocking=True)
+            frame2 = frame2.cuda(self.args.rank, non_blocking=True)
             frame3 = frame3.cuda(self.args.rank, non_blocking=True)
             seg3 = seg3.cuda(self.args.rank, non_blocking=True)
-            # self.args.logger.debug(x.shape)
-            seg, img = self.model(x)
+
+            # random flipping
+            if random.random() < 0.5:
+                with torch.no_grad():
+                    x = torch.flip(x, [3])
+                    frame1 = torch.flip(frame1, [3])
+                    frame2 = torch.flip(frame2, [3])
+                    frame3 = torch.flip(frame3, [3])
+                    seg3 = torch.flip(seg3, [2]) # N*H*W
+
+            seg, img = self.netG(x)
             # normalize img from range [-1,1] to range [(0-0.485)/0.229, (1-0.485)/0.229] for the first channel
             img  = F.tanh(img)
             img = (img - self.mean_arr) / self.std_arr
             
-            # img = 2.5 * F.tanh(img)   # if normalize gt image
-            # img = F.sigmoid(img)
-            img_loss = self.loss(output=img, target=frame3) * 20
-            seg_loss = self.cross_entropy_loss(input=seg, target=seg3) * 10
-            loss = img_loss + seg_loss
-            self.args.logger.debug(loss)
-
-            # loss and accuracy
-            self.sync([loss])
-
-            # backward pass
-            self.optimizer.zero_grad()
-            loss.backward()
-            # no need to sync grad because pytorch has already done so
-            # self.sync_grads()
-            # self.sync_bn_stats()
-
-            # init step in the first train steps
-            self.optimizer.step()
+            
+            ########################################################
+            self.set_requires_grad(self.netD, True)  # enable backprop for D
+            self.optimizer_D.zero_grad()     # set D's gradients to zero
+            # self.backward_D()                # calculate gradients for D
+            fake_AB = torch.cat((frame1, frame2, img), 1)  # we use conditional GANs; we need to feed both input and output to the discriminator
+            pred_fake = self.netD(fake_AB.detach())
+            self.loss_D_fake = self.criterionGAN(pred_fake, False)
+            # Real
+            real_AB = torch.cat((frame1, frame2, frame3), 1)
+            pred_real = self.netD(real_AB)
+            self.loss_D_real = self.criterionGAN(pred_real, True)
+            # combine loss and calculate gradients
+            self.loss_D = (self.loss_D_fake + self.loss_D_real) * 0.5
+            self.sync([self.loss_D])
+            self.loss_D.backward()
+            self.optimizer_D.step()          # update D's weights
+            ##########################################################
+            # update G
+            self.set_requires_grad(self.netD, False)  # D requires no gradients when optimizing G
+            self.optimizer_G.zero_grad()        # set G's gradients to zero
+            # self.backward_G()                   # calculate graidents for G
+            fake_AB = torch.cat((self.real_A, self.fake_B), 1)
+            pred_fake = self.netD(fake_AB)
+            self.loss_G_GAN = self.criterionGAN(pred_fake, True)
+            # Second, G(A) = B
+            self.loss_G_L1 = self.criterionL1(output=img, target=frame3) * 100
+            self.style_loss = self.loss(output=img, target=frame3)
+            self.seg_loss = self.cross_entropy_loss(input=seg, target=seg3) * 10
+            self.loss_G_NOTGAN = self.loss_G_L1 + self.style_loss + self.seg_loss
+            self.args.logger.debug(self.loss_G_NOTGAN)
+            # combine loss and calculate gradients
+            self.loss_G = self.loss_G_GAN + self.loss_G_NOTGAN
+            self.sync([self.loss_G])
+            self.loss_G.backward()
+            self.optimizer_G.step()             # udpate G's weights
 
             comp_time = time() - end
             end = time()
@@ -197,9 +236,9 @@ class Trainer:
                         loss=loss.item()
                     )
                 )
-                self.writer.add_scalar('train/loss', loss.item(), self.global_step)
-                self.writer.add_scalar('train/img loss', img_loss.item(), self.global_step)
-                self.writer.add_scalar('train/seg loss', seg_loss.item(), self.global_step)
+                self.writer.add_scalar('train/disc loss', self.loss_D.item(), self.global_step)
+                self.writer.add_scalar('train/gen loss GAN', self.loss_G.item(), self.global_step)
+                self.writer.add_scalar('train/gen loss NOTGAN', self.loss_G_NOTGAN.item(), self.global_step)
                 self.writer.add_image('train/img gt', make_grid(frame3, normalize=True), self.global_step)
                 self.writer.add_image('train/img', make_grid(img, normalize=True), self.global_step)
                 self.writer.add_image('train/seg gt', make_grid(seg_gt, normalize=True), self.global_step)
@@ -208,7 +247,8 @@ class Trainer:
 
     def validate(self):
         self.args.logger.info('Validation started')
-        self.model.eval()
+        self.netG.eval()
+        self.netD.eval()
 
         val_loss = AverageMeter()
 
@@ -225,16 +265,18 @@ class Trainer:
                 frame3 = frame3.cuda(self.args.rank, non_blocking=True)
                 seg3 = seg3.cuda(self.args.rank, non_blocking=True)
                 # self.args.logger.debug(x.shape)
-                seg, img = self.model(x)
+                seg, img = self.netG(x)
                 # normalize img from range [-1,1] to range [(0-0.485)/0.229, (1-0.485)/0.229] for the first channel
                 img = F.tanh(img)
                 img = (img - self.mean_arr) / self.std_arr
+                
 
                 # img = 2.5 * F.tanh(img)   # if normalize gt image
                 # img = F.sigmoid(img)
-                img_loss = self.loss(output=img, target=frame3) * 20
-                seg_loss = self.cross_entropy_loss(input=seg, target=seg3) * 10
-                loss = img_loss + seg_loss
+                self.loss_G_L1 = self.criterionL1(output=img, target=frame3) * 100
+                self.style_loss = self.loss(output=img, target=frame3)
+                self.seg_loss = self.cross_entropy_loss(input=seg, target=seg3) * 10
+                loss = self.loss_G_L1 + self.style_loss + self.seg_loss
                 self.args.logger.debug(loss)
                 # loss and accuracy
                 # img.size(0) should be batch size

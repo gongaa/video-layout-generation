@@ -96,8 +96,10 @@ def main():
 						help='whether eval after each training')
 	parser.add_argument('--val_interval', dest='val_interval',
 						help='number of epochs to evaluate',type=int,default=1)
-	parser.add_argument('-a', '--arch', type=str, default='CoordGridNet', help='model to use',
-						choices=['GridNet','CoordGridNet'])
+	parser.add_argument('-a', '--arch', type=str, default='ResnetGenerator', help='model to use',
+						choices=['GridNet','CoordGridNet','ResnetGenerator'])
+	parser.add_argument('--discriminator', type=str, default='NLayerDiscriminator', help='model to use')
+	parser.add_argument('--generator', type=str, default='ResnetGenerator', help='model to use')
 	parser.add_argument('-bs','--batch_size', type=int,
 						default=32, help='Batch size (over multiple gpu)')
 	parser.add_argument('-e', '--epochs', type=int,
@@ -133,12 +135,26 @@ def main():
 	parser.add_argument('--o', dest='optimizer', help='training optimizer',
 						choices =['adamax','adam', 'sgd'], default="adamax")
 	parser.add_argument('--lr', dest='lr', help='starting learning rate',
-						default=0.001, type=float)
+						default=0.0002, type=float)
+	parser.add_argument('--beta1', type=float, default=0.5, help='momentum term of adam')
 	parser.add_argument('--lr_decay_step', dest='lr_decay_step', help='step to do learning rate decay, unit is epoch',
 						default=5, type=int)
 	parser.add_argument('--lr_decay_gamma', dest='lr_decay_gamma',
 						help='learning rate decay ratio', default=0.1, type=float)
 
+	parser.add_argument('--input_nc', type=int, default=8, help='# of input image channels: 3 for RGB and 1 for grayscale')
+	parser.add_argument('--output_nc', type=int, default=3, help='# of output image channels: 3 for RGB and 1 for grayscale')
+	parser.add_argument('--ngf', type=int, default=64, help='# of gen filters in the last conv layer')
+	parser.add_argument('--ndf', type=int, default=64, help='# of discrim filters in the first conv layer')
+	parser.add_argument('--netD', type=str, default='basic', help='specify discriminator architecture [basic | n_layers | pixel]. The basic model is a 70x70 PatchGAN. n_layers allows you to specify the layers in the discriminator')
+	parser.add_argument('--netG', type=str, default='resnet_9blocks', help='specify generator architecture [resnet_9blocks | resnet_6blocks | unet_256 | unet_128]')
+	parser.add_argument('--n_layers_D', type=int, default=3, help='only used if netD==n_layers')
+	parser.add_argument('--norm', type=str, default='instance', help='instance normalization or batch normalization [instance | batch | none]')
+	parser.add_argument('--init_type', type=str, default='normal', help='network initialization [normal | xavier | kaiming | orthogonal]')
+	parser.add_argument('--init_gain', type=float, default=0.02, help='scaling factor for normal, xavier and orthogonal.')
+	parser.add_argument('--no_dropout', action='store_true', help='no dropout for the generator')
+	parser.add_argument('--gan_mode', type=str, default='lsgan', help='the type of GAN objective. [vanilla| lsgan | wgangp]. vanilla GAN loss is the cross-entropy objective used in the original GAN paper.')
+	
 	args = parser.parse_args()
 	
 	# exp path
