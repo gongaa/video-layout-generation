@@ -103,7 +103,7 @@ class Trainer:
         self.criterionGAN.cuda(args.rank)
         self.criterionL1 = torch.nn.L1Loss()
         self.criterionL1.cuda(args.rank)
-        args.logger.info('Model info\n%s' % str(self.model))
+        # args.logger.info('Model info\n%s' % str(self.model))
 
 
         torch.backends.cudnn.benchmark = True
@@ -169,12 +169,14 @@ class Trainer:
 
             seg, img = self.netG(x)
             # normalize img from range [-1,1] to range [(0-0.485)/0.229, (1-0.485)/0.229] for the first channel
-            img  = F.tanh(img)
+            # img  = F.tanh(img)
             img = (img - self.mean_arr) / self.std_arr
             
             
             ########################################################
-            self.set_requires_grad(self.netD, True)  # enable backprop for D
+            # self.set_requires_grad(self.netD, True)  # enable backprop for D
+            for param in self.netD.parameters():
+                param.requires_grad = True
             self.optimizer_D.zero_grad()     # set D's gradients to zero
             # self.backward_D()                # calculate gradients for D
             fake_AB = torch.cat((frame1, frame2, img), 1)  # we use conditional GANs; we need to feed both input and output to the discriminator
@@ -191,14 +193,16 @@ class Trainer:
             self.optimizer_D.step()          # update D's weights
             ##########################################################
             # update G
-            self.set_requires_grad(self.netD, False)  # D requires no gradients when optimizing G
+            # self.set_requires_grad(self.netD, False)  # D requires no gradients when optimizing G
+            for param in self.netD.parameters():
+                param.requires_grad = False
             self.optimizer_G.zero_grad()        # set G's gradients to zero
             # self.backward_G()                   # calculate graidents for G
-            fake_AB = torch.cat((self.real_A, self.fake_B), 1)
+            fake_AB = torch.cat((frame1, frame2, img), 1)
             pred_fake = self.netD(fake_AB)
             self.loss_G_GAN = self.criterionGAN(pred_fake, True)
             # Second, G(A) = B
-            self.loss_G_L1 = self.criterionL1(output=img, target=frame3) * 100
+            self.loss_G_L1 = self.criterionL1(img, frame3) * 100
             self.style_loss = self.loss(output=img, target=frame3)
             self.seg_loss = self.cross_entropy_loss(input=seg, target=seg3) * 10
             self.loss_G_NOTGAN = self.loss_G_L1 + self.style_loss + self.seg_loss
@@ -229,11 +233,11 @@ class Trainer:
                 self.args.logger.info(
                     'Epoch [{epoch:d}/{tot_epoch:d}][{cur_batch:d}/{tot_batch:d}] '
                     'load [{load_time:.3f}s] comp [{comp_time:.3f}s] '
-                    'loss [{loss:.4f}]'.format(
+                    'G_loss [{G_loss:.4f}] D_loss [{D_loss:.4f}]'.format(
                         epoch=self.epoch, tot_epoch=self.args.epochs,
                         cur_batch=i+1, tot_batch=len(self.train_loader),
                         load_time=load_time, comp_time=comp_time,
-                        loss=loss.item()
+                        G_loss=self.loss_G.item(), D_loss = self.loss_D.item()
                     )
                 )
                 self.writer.add_scalar('train/disc loss', self.loss_D.item(), self.global_step)
@@ -267,13 +271,13 @@ class Trainer:
                 # self.args.logger.debug(x.shape)
                 seg, img = self.netG(x)
                 # normalize img from range [-1,1] to range [(0-0.485)/0.229, (1-0.485)/0.229] for the first channel
-                img = F.tanh(img)
+                # img = F.tanh(img)
                 img = (img - self.mean_arr) / self.std_arr
                 
 
                 # img = 2.5 * F.tanh(img)   # if normalize gt image
                 # img = F.sigmoid(img)
-                self.loss_G_L1 = self.criterionL1(output=img, target=frame3) * 100
+                self.loss_G_L1 = self.criterionL1(img, frame3) * 100
                 self.style_loss = self.loss(output=img, target=frame3)
                 self.seg_loss = self.cross_entropy_loss(input=seg, target=seg3) * 10
                 loss = self.loss_G_L1 + self.style_loss + self.seg_loss
@@ -297,8 +301,8 @@ class Trainer:
                     p = p.cpu().detach().numpy()
                     np.save('../predict/val_'+str(end)+'_'+str(i).zfill(6)+'.npy', p)
 
-                if self.epoch % 5 == 0 and self.args.rank == 0 and i % 100 == 0:
-                    self.generate_sequence(frame1, frame2, seg1, seg2)
+                # if self.epoch % 5 == 0 and self.args.rank == 0 and i % 100 == 0:
+                #     self.generate_sequence(frame1, frame2, seg1, seg2)
                 
                 comp_time = time() - end
                 end = time()
@@ -340,8 +344,10 @@ class Trainer:
         torch.save({
             'epoch': self.epoch,
             'arch': self.args.arch,
-            'model': self.model.module.state_dict(), # data parallel
-            'optimizer': self.optimizer.state_dict(),
+            'generator': self.netG.module.state_dict(), # data parallel
+            'discriminator': self.netD.module.state_dict(),
+            'optimizer_D': self.optimizer_D.state_dict(),
+            'optimizer_G': self.optimizer_G.state_dict(),
         }, '%s/%03d.pth' % (prefix, self.epoch))
         shutil.copy('%s/%03d.pth' % (prefix, self.epoch),
             '%s/latest.pth' % prefix)
@@ -406,8 +412,8 @@ class Trainer:
                 x = torch.cat([seg[-2], img[-2], img[-1], seg[-1]], dim=1) # zeroth is batch size, first is channel
                 x = x.cuda(self.args.rank, non_blocking=True)
                 # self.args.logger.debug(x.shape)
-                seg_next, img_next = self.model(x)
-                img_next = F.tanh(img_next)
+                seg_next, img_next = self.netG(x)
+                # img_next = F.tanh(img_next)
                 img_next = (img_next - self.mean_arr) / self.std_arr
                 seg_next = torch.argmax(seg_next, dim=1).unsqueeze_(1).float() # from NCHW to N1HW
                 img.append(img_next)

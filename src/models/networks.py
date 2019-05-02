@@ -155,7 +155,7 @@ def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, in
     elif netG == 'unet_256':
         net = UnetGenerator(input_nc, output_nc, 8, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
     else:
-        raise NotImplementedError('Generator model name [%s] is not recognized' % netG)
+        raise NotImplementedError('Generator modelesname [%s] is not recognized' % netG)
     return init_net(net, init_type, init_gain, gpu_ids)
 
 
@@ -378,7 +378,7 @@ class ResnetGenerator(nn.Module):
         img = self.last_conv_img(last_feature)
         img = self.tanh(img)
         seg = self.last_conv_seg(last_feature)
-        return img, seg
+        return seg, img
 
 
 class ResnetBlock(nn.Module):
