@@ -99,8 +99,9 @@ class DatasetFolder(data.Dataset):
             seg[1] = seg[1].float().unsqueeze_(0)
             seg[2] = seg[2].long()
             img = [self.transform(i) for i in img]
-        to_normalize = transforms.Normalize(mean=[0.485,0.456,0.406],std=[0.229,0.224,0.225])
-        return to_normalize(img[0]), seg[0], to_normalize(img[1]), seg[1], to_normalize(img[2]), seg[2] # also normalize GT image
+        # to_normalize = transforms.Normalize(mean=[0.485,0.456,0.406],std=[0.229,0.224,0.225])
+        # return to_normalize(img[0]), seg[0], to_normalize(img[1]), seg[1], to_normalize(img[2]), seg[2] # also normalize GT image
+        return img[0], seg[0], img[1], seg[1], img[2], seg[2]  # do normalization at run time for edge forward
 
     def __len__(self):
         return len(self.samples)
@@ -146,7 +147,7 @@ def pil_loader_seg(path):
     with open(path, 'rb') as f:
         im = Image.open(f)
         im.resize((256,256), Image.NEAREST)
-        return im.convert('RGB')
+        return im.convert('L')
 
 def pil_loader_8bit(path):
     # open path as file to avoid ResourceWarning (https://github.com/python-pillow/Pillow/issues/835)

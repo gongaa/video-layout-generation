@@ -66,6 +66,8 @@ class AddCoords(nn.Module):
 
     def __init__(self):
         super().__init__()
+        self.xx_channel = (torch.arange(256).repeat(1, 256, 1).cuda().float() / 255) * 2 - 1
+        self.yy_channel = self.xx_channel.transpose(1, 2).cuda()
 
     def forward(self, input_tensor):
         """
@@ -74,17 +76,17 @@ class AddCoords(nn.Module):
         """
         batch_size, _, x_dim, y_dim = input_tensor.size()
 
-        xx_channel = torch.arange(x_dim).repeat(1, y_dim, 1)
-        yy_channel = torch.arange(y_dim).repeat(1, x_dim, 1).transpose(1, 2)
+        # xx_channel = torch.arange(x_dim).repeat(1, y_dim, 1)
+        # yy_channel = torch.arange(y_dim).repeat(1, x_dim, 1).transpose(1, 2)
 
-        xx_channel = xx_channel.float() / (x_dim - 1)
-        yy_channel = yy_channel.float() / (y_dim - 1)
+        # xx_channel = xx_channel.float() / (x_dim - 1)
+        # yy_channel = yy_channel.float() / (y_dim - 1)
 
-        xx_channel = xx_channel * 2 - 1
-        yy_channel = yy_channel * 2 - 1
+        # xx_channel = xx_channel * 2 - 1
+        # yy_channel = yy_channel * 2 - 1
 
-        xx_channel = xx_channel.repeat(batch_size, 1, 1, 1).transpose(2, 3)
-        yy_channel = yy_channel.repeat(batch_size, 1, 1, 1).transpose(2, 3)
+        xx_channel = self.xx_channel.repeat(batch_size, 1, 1, 1).transpose(2, 3)
+        yy_channel = self.yy_channel.repeat(batch_size, 1, 1, 1).transpose(2, 3)
 
         ret = torch.cat([
             input_tensor,
@@ -118,7 +120,7 @@ class CoordLateralBlock(nn.Module):
         self.name = name
 
         self.conv = nn.Sequential(
-            nn.PReLU(),     # can be called with n_channels
+            # nn.PReLU(),     # can be called with n_channels
             CoordConv(in_ch, out_ch, kernel_size=3, padding=1),
             nn.PReLU(),
             CoordConv(out_ch, out_ch, kernel_size=3, padding=1)

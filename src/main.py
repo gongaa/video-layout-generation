@@ -94,9 +94,11 @@ def main():
 						default='/data/agong/test', help='Cityscape test dir')
 	parser.add_argument('--validate', action='store_true',
 						help='whether eval after each training')
+	parser.add_argument('--edge', action='store_true',
+						help='obtain edge map before gridnet')
 	parser.add_argument('--val_interval', dest='val_interval',
 						help='number of epochs to evaluate',type=int,default=1)
-	parser.add_argument('-a', '--arch', type=str, default='ResnetGenerator', help='model to use',
+	parser.add_argument('-a', '--arch', type=str, default='CoordGridNet', help='model to use',
 						choices=['GridNet','CoordGridNet','ResnetGenerator'])
 	parser.add_argument('--discriminator', type=str, default='NLayerDiscriminator', help='model to use')
 	parser.add_argument('--generator', type=str, default='ResnetGenerator', help='model to use')
