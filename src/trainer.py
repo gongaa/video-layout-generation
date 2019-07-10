@@ -82,7 +82,7 @@ class Trainer:
         self.model = torch.nn.parallel.DistributedDataParallel(self.model,
                 device_ids=[args.rank])
         self.class_weights = torch.FloatTensor([0.8373, 0.918, 0.866, 1.0345, 1.0166, 0.9969, 0.9754, 1.0489,
-                0.8786, 1.0023, 0.9539, 0.9843, 1.1116, 0.9037, 1.0865, 1.0955, 1.0865, 1.1529, 1.0507]).cuda()
+                0.8786, 1.0023, 0.9539, 0.9843, 1.1116, 0.9037, 1.0865, 1.0955, 1.0865, 1.1529, 1.0507, 0]).cuda()
         self.seg_loss = OhemCrossEntropy(ignore_label=config.TRAIN.IGNORE_LABEL,
                                      thres=config.LOSS.OHEMTHRES,
                                      min_kept=config.LOSS.OHEMKEEP,
@@ -94,8 +94,8 @@ class Trainer:
                 'lr': config.TRAIN.LR}],lr=config.TRAIN.LR,momentum=config.TRAIN.MOMENTUM,
                 weight_decay=config.TRAIN.WD,nesterov=config.TRAIN.NESTEROV,)
         #####################################################
-        # self.mean_arr = torch.tensor([-0.03,-0.088,-0.188])[None,:,None,None].cuda(args.rank)
-        # self.std_arr = torch.tensor([0.448,0.448,0.450])[None,:,None,None].cuda(args.rank)
+        self.mean_arr = torch.tensor([-0.03,-0.088,-0.188])[None,:,None,None].cuda(args.rank)
+        self.std_arr = torch.tensor([0.458,0.448,0.450])[None,:,None,None].cuda(args.rank)
         # self.cross_entropy_loss = nn.CrossEntropyLoss(reduction='mean')
         # self.loss = CombinedLoss()
         # self.psnr = PSNR()
@@ -136,6 +136,10 @@ class Trainer:
 
         self.args = args
         self.epoch = 0
+
+        self.epoch_iters = np.int(self.train_loader.__len__() / args.batch_size) 
+        self.num_iters = args.epochs * self.epoch_iters
+
         self.args.logger.debug('Finish init trainer')
 
     def set_epoch(self, epoch):
@@ -157,6 +161,7 @@ class Trainer:
             end = time()
             # for tensorboard
             self.global_step += 1
+            cur_iters = self.epoch * self.epoch_iters
 
             # forward pass
             x = torch.cat([seg1, frame1, frame2, seg2], dim=1) # zeroth is batch size
@@ -201,7 +206,7 @@ class Trainer:
             comp_time = time() - end
             end = time()
 
-            # lr = adjust_learning_rate(optimizer, base_lr, num_iters, i_iter+cur_iters)
+            lr = adjust_learning_rate(self.optimizer, config.TRAIN.LR, self.num_iters, i + cur_iters)
             
             # seg = torch.argmax(seg, dim=1)
             seg = self.vis_seg_mask(seg, 20, argmax=True)
@@ -271,8 +276,7 @@ class Trainer:
                 self.sync([loss, size], mean=False) # sum
                 loss.div_(size)
                 val_loss.update(loss.item(), size.item())
-                
-                # lr = adjust_learning_rate(optimizer, base_lr, num_iters, i_iter+cur_iters)
+
 
                 seg = torch.argmax(seg, dim=1).unsqueeze_(1).float() # from NCHW to N1HW
                 seg3 = seg3.unsqueeze_(1).float() # from [N,H,W] to [N,1,H,W]

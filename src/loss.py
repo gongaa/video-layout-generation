@@ -137,13 +137,13 @@ class OhemCrossEntropy(nn.Module):
                                              ignore_index=ignore_label, 
                                              reduction='none') 
     
-    def forward(self, score, target, **kwargs):
-        ph, pw = score.size(2), score.size(3)
+    def forward(self, input, target, **kwargs):
+        ph, pw = input.size(2), input.size(3)
         h, w = target.size(1), target.size(2)
         if ph != h or pw != w:
-            score = F.upsample(input=score, size=(h, w), mode='bilinear')
-        pred = F.softmax(score, dim=1)
-        pixel_losses = self.criterion(score, target).contiguous().view(-1)
+            input = F.upsample(input=input, size=(h, w), mode='bilinear')
+        pred = F.softmax(input, dim=1)
+        pixel_losses = self.criterion(input, target).contiguous().view(-1)
         mask = target.contiguous().view(-1) != self.ignore_label         
         
         tmp_target = target.clone() 
